@@ -12,6 +12,7 @@ import sys
 sys.path.append('..')
 import utils
 import numpy as np
+import traceback
 
 BASE_DATA_DIRECTORY = 'data/'
 N_TRIALS = 100
@@ -71,11 +72,28 @@ def objective(params, data):
     # Compute max length as median of lengths
     max_length_X = int(np.median([len(X) for X in data['X_train']]))
     max_length_Y = int(np.median([len(Y) for Y in data['Y_train']]))
-    # Train the network, accumulating epoch results as we go
-    epochs = [(e_r, X_p, Y_p) for (e_r, X_p, Y_p) in train_network.train(
-        data, max_length_X, max_length_Y, conv_layer_specs,
-        dense_layer_specs, params['dense_dropout'], float(params['alpha_XY']),
-        float(params['m_XY']), optimizer=optimizer)]
+    epochs = []
+    try:
+        # Train the network, accumulating epoch results as we go
+        for (e_r, X_p, Y_p) in train_network.train(
+                data, max_length_X, max_length_Y, conv_layer_specs,
+                dense_layer_specs, params['dense_dropout'],
+                float(params['alpha_XY']), float(params['m_XY']),
+                optimizer=optimizer):
+            # Stop training of a nan training cost is encountered
+            if not np.isfinite(e_r['train_cost']):
+                break
+            epochs.append((e_r, X_p, Y_p))
+            print "{}: {}, ".format(e_r['iteration'],
+                                    e_r['validate_cost']),
+            sys.stdout.flush()
+    # If there was an error while training, report it to whetlab
+    except Exception:
+        print "ERROR: "
+        print traceback.format_exc()
+        return None, None, None
+    print
+
     # If no epochs were completed due to an error or NaN cost, return Nones
     if len(epochs) == 0:
         return None, None, None
