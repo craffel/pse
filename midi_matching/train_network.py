@@ -11,10 +11,10 @@ import collections
 
 
 def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
-          lstm_layer_specs, dense_layer_specs, bidirectional, dense_dropout,
-          concat_hidden, alpha_XY, m_XY, optimizer=lasagne.updates.rmsprop,
-          batch_size=20, epoch_size=100, initial_patience=1000,
-          improvement_threshold=0.99, patience_increase=10, max_iter=100000):
+          dense_layer_specs, dense_dropout, alpha_XY, m_XY,
+          optimizer=lasagne.updates.rmsprop, batch_size=20, epoch_size=100,
+          initial_patience=1000, improvement_threshold=0.99,
+          patience_increase=10, max_iter=100000):
     ''' Utility function for training a siamese net for cross-modality hashing
     Assumes data['X_train'][n] should be mapped close to data['Y_train'][m]
     only when n == m
@@ -26,16 +26,11 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
             Sequence matrix shape=(n_sequences, n_time_steps, n_features)
         - sample_size_X, sample_size_Y : int
             Sampled sequence length for X/Y modalities
-        - conv_layer_specs, lstm_layer_specs, dense_layer_specs : list of dict
+        - conv_layer_specs, dense_layer_specs : list of dict
             List of dicts, where each dict corresponds to keyword arguments
             for each subsequent layer.  Note that
             dense_layer_specs[-1]['num_units'] should be the output
             dimensionality of the network.
-        - bidirectional : bool
-            Whether the LSTM layers should be bidirectional or not
-        - concat_hidden : bool
-            If True, utilize the output of all LSTM layers for output
-            compuation
         - dense_dropout : bool
             If True, include dropout between the dense layers
         - alpha_XY : float
@@ -67,22 +62,16 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     layers = {
         'X': utils.build_network(
             (None, None, data['X_train'][0].shape[-1]), conv_layer_specs,
-            lstm_layer_specs, dense_layer_specs, bidirectional, concat_hidden,
-            dense_dropout),
+            dense_layer_specs, dense_dropout),
         'Y': utils.build_network(
             (None, None, data['Y_train'][0].shape[-1]), conv_layer_specs,
-            lstm_layer_specs, dense_layer_specs, bidirectional, concat_hidden,
-            dense_dropout)}
+            dense_layer_specs, dense_dropout)}
     # Inputs to X modality neural nets
     X_p_input = T.tensor3('X_p_input')
-    X_p_mask = T.matrix('X_p_mask')
     X_n_input = T.tensor3('X_n_input')
-    X_n_mask = T.matrix('X_n_mask')
     # Y network
     Y_p_input = T.tensor3('Y_p_input')
-    Y_p_mask = T.matrix('Y_p_mask')
     Y_n_input = T.tensor3('Y_n_input')
-    Y_n_mask = T.matrix('Y_n_mask')
 
     # Compute \sum max(0, m - ||a - b||_2)^2
     def hinge_cost(m, a, b):
@@ -92,19 +81,19 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     def hasher_cost(deterministic):
         X_p_output = lasagne.layers.get_output(
             layers['X']['out'],
-            {layers['X']['in']: X_p_input, layers['X']['mask']: X_p_mask},
+            {layers['X']['in']: X_p_input},
             deterministic=deterministic)
         X_n_output = lasagne.layers.get_output(
             layers['X']['out'],
-            {layers['X']['in']: X_n_input, layers['X']['mask']: X_n_mask},
+            {layers['X']['in']: X_n_input},
             deterministic=deterministic)
         Y_p_output = lasagne.layers.get_output(
             layers['Y']['out'],
-            {layers['Y']['in']: Y_p_input, layers['Y']['mask']: Y_p_mask},
+            {layers['Y']['in']: Y_p_input},
             deterministic=deterministic)
         Y_n_output = lasagne.layers.get_output(
             layers['Y']['out'],
-            {layers['Y']['in']: Y_n_input, layers['Y']['mask']: Y_n_mask},
+            {layers['Y']['in']: Y_n_input},
             deterministic=deterministic)
         # Unthresholded, unscaled cost of positive examples across modalities
         cost_p = T.mean(T.sum((X_p_output - Y_p_output)**2, axis=1))
@@ -120,13 +109,11 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     # Compute RMSProp gradient descent updates
     updates = optimizer(hasher_cost(False), params)
     # Function for training the network
-    train = theano.function([X_p_input, X_p_mask, X_n_input, X_n_mask,
-                             Y_p_input, Y_p_mask, Y_n_input, Y_n_mask],
+    train = theano.function([X_p_input, X_n_input, Y_p_input, Y_n_input],
                             hasher_cost(False), updates=updates)
 
     # Compute cost without training
-    cost = theano.function([X_p_input, X_p_mask, X_n_input, X_n_mask,
-                            Y_p_input, Y_p_mask, Y_n_input, Y_n_mask],
+    cost = theano.function([X_p_input, X_n_input, Y_p_input, Y_n_input],
                            hasher_cost(True))
 
     # Start with infinite validate cost; we will always increase patience once
@@ -134,9 +121,9 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     patience = initial_patience
 
     # Create sampled sequences for validation
-    X_validate, X_validate_mask = utils.sample_sequences(
+    X_validate = utils.sample_sequences(
         data['X_validate'], sample_size_X)
-    Y_validate, Y_validate_mask = utils.sample_sequences(
+    Y_validate = utils.sample_sequences(
         data['Y_validate'], sample_size_Y)
     # Create fixed negative example validation set
     X_validate_shuffle = np.random.permutation(X_validate.shape[0])
@@ -149,11 +136,10 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     # We will accumulate the mean train cost over each epoch
     train_cost = 0
 
-    for n, (X_p, X_p_m, Y_p, Y_p_m,
-            X_n, X_n_m, Y_n, Y_n_m) in enumerate(data_iterator):
+    for n, (X_p, Y_p, X_n, Y_n) in enumerate(data_iterator):
         # Occasionally Theano was raising a MemoryError, this fails gracefully
         try:
-            train_cost += train(X_p, X_p_m, X_n, X_n_m, Y_p, Y_p_m, Y_n, Y_n_m)
+            train_cost += train(X_p, X_n, Y_p, Y_n)
         except MemoryError as e:
             print "MemoryError: {}".format(e)
             return
@@ -177,13 +163,9 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
                 batch_slice = slice(n, n + batch_size)
                 epoch_result['validate_cost'] += cost(
                     X_validate[batch_slice],
-                    X_validate_mask[batch_slice],
                     X_validate[X_validate_shuffle][batch_slice],
-                    X_validate_mask[X_validate_shuffle][batch_slice],
                     Y_validate[batch_slice],
-                    Y_validate_mask[batch_slice],
-                    Y_validate[Y_validate_shuffle][batch_slice],
-                    Y_validate_mask[Y_validate_shuffle][batch_slice])
+                    Y_validate[Y_validate_shuffle][batch_slice])
                 validate_batches += 1
             epoch_result['validate_cost'] /= float(validate_batches)
 

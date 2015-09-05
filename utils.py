@@ -7,32 +7,7 @@ import scipy.spatial
 import pickle
 import lasagne
 import collections
-
-
-def stack_sequences(max_length, *args):
-    '''
-    Given some lists of np.ndarrays, create a matrix of each list with a mask.
-    Accepts a variable number of lists.  Returns twice as many matrices as
-    lists - i.e., two matrices per list, in the order data, mask, data, mask...
-    Data matrices will have shape (len(data), max_length, input.shape[-1])
-    Masks will have shape (len(data), max_length)
-    '''
-    # Iterate over all provided lists of sequences
-    outputs = []
-    for data in args:
-        # Allocate a data matrix for all sequences
-        data_matrix = np.zeros((len(data), max_length, data[0].shape[-1]),
-                               dtype=theano.config.floatX)
-        # Mask has same shape, but no feature dimension
-        data_mask = np.zeros((len(data), max_length), dtype=np.bool)
-        # Fill in matrices and masks
-        for n, sequence in enumerate(data):
-            data_matrix[n, :sequence.shape[0]] = sequence[:max_length]
-            data_mask[n, :sequence.shape[0]] = 1
-        # Add in matrix and mask to function outputs
-        outputs.append(data_matrix)
-        outputs.append(data_mask)
-    return tuple(outputs)
+import theano.tensor as T
 
 
 def standardize(X):
@@ -117,34 +92,24 @@ def sample_sequences(X, sample_size):
     -------
     X_sampled : np.ndarray
         Sampled sequences, shape (n_samples, n_time_steps, n_features)
-    X_mask : np.ndarray
-        Masks for sequences, shape (n_samples, n_time_steps)
     '''
     X_sampled = []
-    X_mask = []
     for sequence_X in X:
         # If a sequence is smaller than the provided sample size, append 0s
-        # and add a mask
         if sequence_X.shape[0] < sample_size:
             # Append zeros to the sequence to make shape[0] = sample_size
             X_pad = np.zeros(
                 (sample_size - sequence_X.shape[0], sequence_X.shape[1]),
                 dtype=theano.config.floatX)
             X_sampled.append(np.concatenate((sequence_X, X_pad), axis=0))
-            # Create a mask which is [1, 1, ... shape[0], 0, 0, ... ]
-            mask = np.zeros(sample_size, dtype=bool)
-            mask[:sequence_X.shape[0]] = 1
-            X_mask.append(mask)
         else:
             # Compute a random offset to start cropping from
             offset = np.random.random_integers(
                 0, sequence_X.shape[0] - sample_size)
             # Extract a subsequence at the offset
             X_sampled.append(sequence_X[offset:offset + sample_size])
-            # Include entire sequence in mask
-            X_mask.append(np.ones(sample_size, dtype=bool))
     # Combine into new output array
-    return np.array(X_sampled), np.array(X_mask)
+    return np.array(X_sampled)
 
 
 def random_derangement(n):
@@ -197,7 +162,7 @@ def get_next_batch(X, Y, sample_size_X, sample_size_Y, batch_size, n_iter):
 
     Yields
     ------
-    X_p, X_p_m, Y_p, Y_p_m, X_n, X_n_m, Y_n, Y_n_m : np.ndarray
+    X_p, Y_p, X_n, Y_n : np.ndarray
         Positive/negative example/mask minibatch in X/Y modality
     '''
     # These are dummy values which will force the sequences to be sampled
@@ -207,29 +172,24 @@ def get_next_batch(X, Y, sample_size_X, sample_size_Y, batch_size, n_iter):
     for n in xrange(n_iter):
         if current_batch >= n_batches:
             # Grab sampled sequences of length sample_size_* from X and Y
-            X_sampled, X_mask = sample_sequences(X, sample_size_X)
-            Y_sampled, Y_mask = sample_sequences(Y, sample_size_Y)
+            X_sampled = sample_sequences(X, sample_size_X)
+            Y_sampled = sample_sequences(Y, sample_size_Y)
             N = X_sampled.shape[0]
             n_batches = int(np.floor(N/float(batch_size)))
             # Shuffle X_p and Y_p the same
             positive_shuffle = np.random.permutation(N)
             X_p = np.array(X_sampled[positive_shuffle])
-            X_p_m = np.array(X_mask[positive_shuffle])
             Y_p = np.array(Y_sampled[positive_shuffle])
-            Y_p_m = np.array(Y_mask[positive_shuffle])
             # Shuffle X_n and Y_n differently (derangement ensures nothing
             # stays in the same place)
             negative_shuffle_X = np.random.permutation(N)
             negative_shuffle_Y = negative_shuffle_X[random_derangement(N)]
             X_n = np.array(X_sampled[negative_shuffle_X])
-            X_n_m = np.array(X_mask[negative_shuffle_X])
             Y_n = np.array(Y_sampled[negative_shuffle_Y])
-            Y_n_m = np.array(Y_mask[negative_shuffle_Y])
             current_batch = 0
         # Yield batch slices
         batch = slice(current_batch*batch_size, (current_batch + 1)*batch_size)
-        yield (X_p[batch], X_p_m[batch], Y_p[batch], Y_p_m[batch],
-               X_n[batch], X_n_m[batch], Y_n[batch], Y_n_m[batch])
+        yield (X_p[batch], Y_p[batch], X_n[batch], Y_n[batch])
         current_batch += 1
 
 
@@ -266,9 +226,71 @@ def mean_reciprocal_rank(X, Y, indices):
             np.mean(1./(n_lt.sum(axis=0) + 1)))
 
 
-def build_network(input_shape, conv_layer_specs, lstm_layer_specs,
-                  dense_layer_specs, bidirectional, concat_hidden,
-                  dense_dropout):
+class AttentionLayer(lasagne.layers.Layer):
+    '''
+    A layer which computes a weighted average across the second dimension of
+    its input, where the weights are computed according to the third dimension.
+    This results in the second dimension being flattened.  This is an attention
+    mechanism - which "steps" (in the second dimension) are attended to is
+    determined by a learned transform of the features.
+
+    Parameters
+    ----------
+    incoming : a :class:`Layer` instance or a tuple
+        The layer feeding into this layer, or the expected input shape
+
+    W : Theano shared variable, numpy array or callable
+        An initializer for the weights of the layer. If a shared variable or a
+        numpy array is provided the shape should  be (num_inputs,).
+
+    b : Theano shared variable, numpy array, callable or None
+        An initializer for the biases of the layer. If a shared variable or a
+        numpy array is provided the shape should be () (it is a scalar).
+        If None is provided the layer will have no biases.
+
+    nonlinearity : callable or None
+        The nonlinearity that is applied to the layer activations. If None
+        is provided, the layer will be linear.
+    '''
+    def __init__(self, incoming, W=lasagne.init.Normal(),
+                 b=lasagne.init.Constant(0.),
+                 nonlinearity=lasagne.nonlinearities.tanh,
+                 **kwargs):
+        super(AttentionLayer, self).__init__(incoming, **kwargs)
+        # Use identity nonlinearity if provided nonlinearity is None
+        self.nonlinearity = (lasagne.nonlinearities.identity
+                             if nonlinearity is None else nonlinearity)
+
+        # Add weight vector parameter
+        self.W = self.add_param(W, (self.input_shape[2],), name="W")
+        if b is None:
+            self.b = None
+        else:
+            # Add bias scalar parameter
+            self.b = self.add_param(b, (), name="b", regularizable=False)
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], input_shape[-1])
+
+    def get_output_for(self, input, **kwargs):
+        # Dot with W to get raw weights, shape=(n_batch, n_steps)
+        activation = T.dot(input, self.W)
+        # Add bias
+        if self.b is not None:
+            activation = activation + self.b
+        # Apply nonlinearity
+        activation = self.nonlinearity(activation)
+        # Perform softmax
+        activation = T.exp(activation)
+        activation /= activation.sum(axis=1).dimshuffle(0, 'x')
+        # Weight steps
+        weighted_input = input*activation.dimshuffle(0, 1, 'x')
+        # Compute weighted average (summing because softmax is normed)
+        return weighted_input.sum(axis=1)
+
+
+def build_network(input_shape, conv_layer_specs,
+                  dense_layer_specs, dense_dropout):
     '''
     Construct a list of layers of a network given the network's structure.
 
@@ -276,15 +298,11 @@ def build_network(input_shape, conv_layer_specs, lstm_layer_specs,
     ----------
     input_shape : tuple
         Dimensionality of input to be fed into the network
-    conv_layer_specs, lstm_layer_specs, dense_layer_specs : list of dict
+    conv_layer_specs, dense_layer_specs : list of dict
         List of dicts, where each dict corresponds to keyword arguments
         for each subsequent layer.  Note that
         dense_layer_specs[-1]['num_units'] should be the output dimensionality
         of the network.
-    bidirectional: bool
-        Whether the LSTM layers should be bidirectional or not
-    concat_hidden : bool
-        If True, utilize the output of all LSTM layers for output compuation
     dense_dropout : bool
         If True, include dropout between the dense layers
 
@@ -292,16 +310,14 @@ def build_network(input_shape, conv_layer_specs, lstm_layer_specs,
     -------
     layers : dict
         Dictionary which stores important layers in the network, with the
-        following mapping: `'in'` maps to the input layer, `'mask'`
-        maps to the mask input, and `'out'` maps to the output layer.
+        following mapping: `'in'` maps to the input layer, and `'out'` maps
+        to the output layer.
     '''
     # Start with input layer
     layer = lasagne.layers.InputLayer(shape=input_shape)
-    # Also create a separate mask input
-    mask_input = lasagne.layers.InputLayer(shape=input_shape[:2])
     # Store a dictionary which conveniently maps names to layers we will need
     # to access later
-    layers = {'in': layer, 'mask': mask_input}
+    layers = {'in': layer}
     # Optionally add convolutional layers
     if len(conv_layer_specs) > 0:
         # Add a "n_channels" dimension to the input
@@ -314,38 +330,15 @@ def build_network(input_shape, conv_layer_specs, lstm_layer_specs,
                 nonlinearity=lasagne.nonlinearities.rectify,
                 W=lasagne.init.HeNormal(), pad='same', **layer_spec)
             layer = lasagne.layers.MaxPool2DLayer(layer, (2, 2))
-            # We also need to max-pool the mask layer, so that time steps
-            # which are pooled have their mask pooled too.
-            mask_input = lasagne.layers.ReshapeLayer(mask_input, ([0], 1, [1]))
-            mask_input = lasagne.layers.MaxPool1DLayer(mask_input, 2)
-            mask_input = lasagne.layers.ReshapeLayer(mask_input, ([0], [2]))
         # Now, combine the "n_channels" dimension with the "n_features"
         # dimension
         layer = lasagne.layers.DimshuffleLayer(layer, (0, 2, 1, 3))
         layer = lasagne.layers.ReshapeLayer(layer, ([0], [1], -1))
-    # Keep track of LSTM layers for potential concatenation
-    lstm_layers = []
-    # Add each LSTM layer
-    for layer_spec in lstm_layer_specs:
-        # Always construct a forwards-running LSTM layer
-        layer_forward = lasagne.layers.LSTMLayer(
-            layer, mask_input=mask_input, **layer_spec)
-        if bidirectional:
-            # When bidirectional is true, also create a backwards-running LSTM
-            # layer and use a ConcatLayer to combine them
-            layer_backward = lasagne.layers.LSTMLayer(
-                layer, mask_input=mask_input, backwards=True, **layer_spec)
-            layer = lasagne.layers.ConcatLayer(
-                [layer_forward, layer_backward], axis=-1)
-        else:
-            # Otherwise, the layer to add is just the forward layer
-            layer = layer_forward
-        lstm_layers.append(layer)
-    # Optionally concatenate all LSTM layer outputs
-    if concat_hidden:
-        layer = lasagne.layers.ConcatLayer(lstm_layers, axis=-1)
-    # Retrieve the last output from the LSTM section
-    layer = lasagne.layers.SliceLayer(layer, -1, 1)
+    # Add the attention layer to aggregate over time steps
+    # We must force He initialization because Lasagne doesn't like 1-dim
+    # shapes in He and Glorot initializers
+    layer = AttentionLayer(
+        layer, W=lasagne.init.Normal(1./np.sqrt(layer.output_shape[-1])))
     # Add dense layers
     for layer_spec in dense_layer_specs:
         # Optionally include dropout

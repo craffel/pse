@@ -39,35 +39,12 @@ def objective(params, data):
     Will return None, None, None if training diverged before one epoch
     """
     # Construct layer specifications from parameters
-    # First convolutional layer always has 5x12 filters, second always 3x3
+    # First convolutional layer always has 5x12 filters, rest always 3x3
     conv_layer_specs = [{'filter_size': (5, 12), 'num_filters': 16},
-                        {'filter_size': (3, 3), 'num_filters': 32}]
+                        {'filter_size': (3, 3), 'num_filters': 32},
+                        {'filter_size': (3, 3), 'num_filters': 64}]
     # Truncate the conv_layer_specs list according to how many layers
     conv_layer_specs = conv_layer_specs[:params['n_conv_layers']]
-    # Construct the LSTM gate nitializer from the supplied weight matrix std
-    gate = lasagne.layers.Gate(
-        W_in=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_hid=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_cell=lasagne.init.Normal(10**params['lstm_W_std_exponent']))
-    # Forget gate optionally has a different (higher) bias value
-    forget_gate = lasagne.layers.Gate(
-        W_in=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_hid=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_cell=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        b=lasagne.init.Constant(params['forget_bias']))
-    # Cell is a different gate, with W_cell=None and tanh nonlinearity
-    cell = lasagne.layers.Gate(
-        W_in=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_hid=lasagne.init.Normal(10**params['lstm_W_std_exponent']),
-        W_cell=None,
-        nonlinearity=lasagne.nonlinearities.tanh)
-    # Construct prototype LSTM layer spec; they all have the same structure
-    lstm_layer_specs = [{'num_units': 100, 'ingate': gate, 'forgetgate':
-                         forget_gate, 'outgate': gate, 'cell': cell,
-                         'grad_clipping': params['grad_clipping'],
-                         'gradient_steps': params['gradient_steps']}]
-    # Copy single LSTM layer spec n_lstm_layers times
-    lstm_layer_specs = lstm_layer_specs*params['n_lstm_layers']
     # ALways have the final dense output layer have OUTPUT_DIM units,
     # optionally have another with 2048 units
     dense_layer_specs = [
@@ -96,12 +73,9 @@ def objective(params, data):
     max_length_Y = int(np.median([len(Y) for Y in data['Y_train']]))
     # Train the network, accumulating epoch results as we go
     epochs = [(e_r, X_p, Y_p) for (e_r, X_p, Y_p) in train_network.train(
-        data, max_length_X, max_length_Y, conv_layer_specs, lstm_layer_specs,
-        dense_layer_specs, params['bidirectional'], params['dense_dropout'],
-        params['concat_hidden'], float(params['alpha_XY']),
-        float(params['m_XY']), optimizer=optimizer,
-        # TODO
-        max_iter=1001)]
+        data, max_length_X, max_length_Y, conv_layer_specs,
+        dense_layer_specs, params['dense_dropout'], float(params['alpha_XY']),
+        float(params['m_XY']), optimizer=optimizer)]
     # If no epochs were completed due to an error or NaN cost, return Nones
     if len(epochs) == 0:
         return None, None, None
@@ -112,18 +86,11 @@ def objective(params, data):
 
 if __name__ == '__main__':
     space = {
-        'n_lstm_layers': {'type': 'int', 'min': 1, 'max': 3},
         'n_dense_layers': {'type': 'int', 'min': 1, 'max': 2},
-        'n_conv_layers': {'type': 'int', 'min': 0, 'max': 2},
-        'bidirectional': {'type': 'enum', 'options': [0, 1]},
+        'n_conv_layers': {'type': 'int', 'min': 1, 'max': 3},
         'dense_dropout': {'type': 'enum', 'options': [0, 1]},
-        'concat_hidden': {'type': 'enum', 'options': [0, 1]},
-        'forget_bias': {'type': 'enum', 'options': [0, 1, 2, 5, 10]},
-        'grad_clipping': {'type': 'enum', 'options': [0, 1, 10]},
-        'gradient_steps': {'type': 'enum', 'options': [-1, 100]},
         'alpha_XY': {'type': 'float', 'min': 0, 'max': 1},
         'm_XY': {'type': 'int', 'min': 1, 'max': 16},
-        'lstm_W_std_exponent': {'type': 'int', 'min': -3, 'max': -1},
         'learning_rate_exp': {'type': 'int', 'min': -6, 'max': -2},
         'momentum': {'type': 'enum', 'options': [.9, .99, .999]},
         'optimizer': {'type': 'enum', 'options': ['NAG', 'rmsprop', 'adam']}}
