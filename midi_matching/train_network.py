@@ -10,22 +10,22 @@ import utils
 import collections
 
 
-def train(data, conv_layer_specs, lstm_layer_specs, dense_layer_specs,
-          bidirectional, dense_dropout, concat_hidden, alpha_XY, m_XY,
-          optimizer=lasagne.updates.rmsprop, batch_size=20, epoch_size=100,
-          initial_patience=1000, improvement_threshold=0.99,
-          patience_increase=10, max_iter=100000):
+def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
+          lstm_layer_specs, dense_layer_specs, bidirectional, dense_dropout,
+          concat_hidden, alpha_XY, m_XY, optimizer=lasagne.updates.rmsprop,
+          batch_size=20, epoch_size=100, initial_patience=1000,
+          improvement_threshold=0.99, patience_increase=10, max_iter=100000):
     ''' Utility function for training a siamese net for cross-modality hashing
     Assumes data['X_train'][n] should be mapped close to data['Y_train'][m]
     only when n == m
 
     :parameters:
-        - data : dict of np.ndarray
-            Training/validation sequences/masks in X/Y modality
-            Should contain keys X_train, X_train_mask, Y_train, Y_train_mask,
-            X_validate, X_validate_mask, Y_validate, Y_validate_mask
+        - data : dict of list of np.ndarray
+            Training/validation sequences in X/Y modality
+            Should contain keys X_train, Y_train, X_validate, Y_validate
             Sequence matrix shape=(n_sequences, n_time_steps, n_features)
-            Mask matrix shape=(n_sequences, n_time_steps)
+        - sample_size_X, sample_size_Y : int
+            Sampled sequence length for X/Y modalities
         - conv_layer_specs, lstm_layer_specs, dense_layer_specs : list of dict
             List of dicts, where each dict corresponds to keyword arguments
             for each subsequent layer.  Note that
@@ -133,13 +133,19 @@ def train(data, conv_layer_specs, lstm_layer_specs, dense_layer_specs,
     current_validate_cost = np.inf
     patience = initial_patience
 
+    # Create sampled sequences for validation
+    X_validate, X_validate_mask = utils.sample_sequences(
+        data['X_validate'], sample_size_X)
+    Y_validate, Y_validate_mask = utils.sample_sequences(
+        data['Y_validate'], sample_size_Y)
     # Create fixed negative example validation set
-    X_validate_shuffle = np.random.permutation(data['X_validate'].shape[0])
+    X_validate_shuffle = np.random.permutation(X_validate.shape[0])
     Y_validate_shuffle = X_validate_shuffle[
-        utils.random_derangement(data['X_validate'].shape[0])]
+        utils.random_derangement(X_validate.shape[0])]
+    # Create iterator to sample sequences from training data
     data_iterator = utils.get_next_batch(
-        data['X_train'], data['X_train_mask'], data['Y_train'],
-        data['Y_train_mask'], batch_size, max_iter)
+        data['X_train'], data['Y_train'], sample_size_X, sample_size_Y,
+        batch_size, max_iter)
     # We will accumulate the mean train cost over each epoch
     train_cost = 0
 
@@ -167,17 +173,17 @@ def train(data, conv_layer_specs, lstm_layer_specs, dense_layer_specs,
             epoch_result['validate_cost'] = 0
             validate_batches = 0
             # We need to accumulate the cost over batches to avoid MemoryErrors
-            for n in range(0, data['X_validate'].shape[0], batch_size):
+            for n in range(0, X_validate.shape[0], batch_size):
                 batch_slice = slice(n, n + batch_size)
                 epoch_result['validate_cost'] += cost(
-                    data['X_validate'][batch_slice],
-                    data['X_validate_mask'][batch_slice],
-                    data['X_validate'][X_validate_shuffle][batch_slice],
-                    data['X_validate_mask'][X_validate_shuffle][batch_slice],
-                    data['Y_validate'][batch_slice],
-                    data['Y_validate_mask'][batch_slice],
-                    data['Y_validate'][Y_validate_shuffle][batch_slice],
-                    data['Y_validate_mask'][Y_validate_shuffle][batch_slice])
+                    X_validate[batch_slice],
+                    X_validate_mask[batch_slice],
+                    X_validate[X_validate_shuffle][batch_slice],
+                    X_validate_mask[X_validate_shuffle][batch_slice],
+                    Y_validate[batch_slice],
+                    Y_validate_mask[batch_slice],
+                    Y_validate[Y_validate_shuffle][batch_slice],
+                    Y_validate_mask[Y_validate_shuffle][batch_slice])
                 validate_batches += 1
             epoch_result['validate_cost'] /= float(validate_batches)
 
