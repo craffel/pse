@@ -85,7 +85,7 @@ def objective(params, data):
                 break
             epochs.append((e_r, X_p, Y_p))
             print "{}: {}, ".format(e_r['iteration'],
-                                    e_r['validate_cost']),
+                                    e_r['validate_objective']),
             sys.stdout.flush()
     # If there was an error while training, report it to whetlab
     except Exception:
@@ -98,7 +98,7 @@ def objective(params, data):
     if len(epochs) == 0:
         return None, None, None
     # Find the index of the epoch with the lowest validate cost
-    best_epoch = np.argmin([e[0]['validate_cost'] for e in epochs])
+    best_epoch = np.argmin([e[0]['validate_objective'] for e in epochs])
     return epochs[best_epoch]
 
 
@@ -139,4 +139,4 @@ if __name__ == '__main__':
         print "Objective:", best_epoch
         print
         # Update hyperparameter optimizer
-        experiment.update(params, best_epoch['validate_cost'])
+        experiment.update(params, best_epoch['validate_objective'])

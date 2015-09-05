@@ -381,3 +381,32 @@ def load_model(layers, param_file):
     with open(param_file) as f:
         params = pickle.load(f)
     lasagne.layers.set_all_param_values(layers[-1], params)
+
+
+def bhatt_coeff(x, y, bins=20):
+    '''
+    Compute the Bhattacharyya distance between samples of two random variables.
+
+    Parameters
+    ----------
+    x, y : np.ndarray
+        Samples of two random variables.
+
+    bins : int
+        Number of bins to use when approximating densities.
+
+    Returns
+    -------
+    bhatt_coeff : float
+        Bhattacharyya coefficient.
+    '''
+    # Find histogram range - min to max
+    bounds = [min(min(x), min(y)), max(max(x), max(y))]
+    # Compute histograms
+    x_hist = np.histogram(x, bins=20, range=bounds)[0]
+    y_hist = np.histogram(y, bins=20, range=bounds)[0]
+    # Normalize
+    x_hist = x_hist.astype(float)/x_hist.sum()
+    y_hist = y_hist.astype(float)/y_hist.sum()
+    # Compute Bhattacharyya coefficient
+    return np.sum(np.sqrt(x_hist*y_hist))

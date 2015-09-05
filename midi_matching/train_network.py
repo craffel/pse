@@ -116,6 +116,14 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     cost = theano.function([X_p_input, X_n_input, Y_p_input, Y_n_input],
                            hasher_cost(True))
 
+    # Compute output without training
+    X_output = theano.function(
+        [layers['X']['in'].input_var],
+        lasagne.layers.get_output(layers['X']['out'], deterministic=True))
+    Y_output = theano.function(
+        [layers['Y']['in'].input_var],
+        lasagne.layers.get_output(layers['Y']['out'], deterministic=True))
+
     # Start with infinite validate cost; we will always increase patience once
     current_validate_cost = np.inf
     patience = initial_patience
@@ -155,19 +163,40 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
             epoch_result['train_cost'] = train_cost / float(epoch_size)
             # Reset training cost mean accumulation
             train_cost = 0
-            # Also compute validate cost
+
+            # We need to accumulate the validation cost and network output over
+            # batches to avoid MemoryErrors
             epoch_result['validate_cost'] = 0
             validate_batches = 0
-            # We need to accumulate the cost over batches to avoid MemoryErrors
+            X_val_output = []
+            Y_val_output = []
             for n in range(0, X_validate.shape[0], batch_size):
+                # Extract slice from validation set for this batch
                 batch_slice = slice(n, n + batch_size)
+                # Compute and accumulate cost
                 epoch_result['validate_cost'] += cost(
                     X_validate[batch_slice],
                     X_validate[X_validate_shuffle][batch_slice],
                     Y_validate[batch_slice],
                     Y_validate[Y_validate_shuffle][batch_slice])
+                # Keep track of # of batches for normalization
                 validate_batches += 1
+                # Compute network output and accumulate result
+                X_val_output.append(X_output(X_validate[batch_slice]))
+                Y_val_output.append(Y_output(Y_validate[batch_slice]))
+            # Normalize cost by number of batches and store
             epoch_result['validate_cost'] /= float(validate_batches)
+            # Concatenate per-batch output to tensors
+            X_val_output = np.concatenate(X_val_output, axis=0)
+            Y_val_output = np.concatenate(Y_val_output, axis=0)
+            # Compute in-class and out-of-class distances
+            in_dists = np.mean((X_val_output - Y_val_output)**2, axis=1)
+            out_dists = np.mean((X_val_output[X_validate_shuffle] -
+                                Y_val_output[Y_validate_shuffle])**2, axis=1)
+            # Objective is Bhattacharrya coefficient of in-class and
+            # out-of-class distances
+            epoch_result['validate_objective'] = utils.bhatt_coeff(
+                in_dists, out_dists)
 
             if epoch_result['validate_cost'] < current_validate_cost:
                 patience_cost = improvement_threshold*current_validate_cost
