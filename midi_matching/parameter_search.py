@@ -91,10 +91,13 @@ def objective(params, data):
     elif params['optimizer'] == 'adam':
         optimizer = functools.partial(
             lasagne.updates.adam, learning_rate=learning_rate, beta2=momentum)
+    # Compute max length as median of lengths
+    max_length_X = int(np.median([len(X) for X in data['X_train']]))
+    max_length_Y = int(np.median([len(Y) for Y in data['Y_train']]))
     # Train the network, accumulating epoch results as we go
     epochs = [(e_r, X_p, Y_p) for (e_r, X_p, Y_p) in train_network.train(
-        data, conv_layer_specs, lstm_layer_specs, dense_layer_specs,
-        params['bidirectional'], params['dense_dropout'],
+        data, max_length_X, max_length_Y, conv_layer_specs, lstm_layer_specs,
+        dense_layer_specs, params['bidirectional'], params['dense_dropout'],
         params['concat_hidden'], float(params['alpha_XY']),
         float(params['m_XY']), optimizer=optimizer,
         # TODO
@@ -134,27 +137,13 @@ if __name__ == '__main__':
     # Load in the data
     (X_train, Y_train, X_validate, Y_validate) = utils.load_data(
         train_list, valid_list)
-    # Compute max length as median of lengths
-    max_length_X = int(np.median([len(X) for X in X_train + X_validate]))
-    max_length_Y = int(np.median([len(Y) for Y in Y_train + Y_validate]))
-    # Turn into sequence matrices/masks
-    (X_train, X_train_mask, X_validate,
-     X_validate_mask) = utils.stack_sequences(
-         max_length_X, X_train, X_validate)
-    (Y_train, Y_train_mask, Y_validate,
-     Y_validate_mask) = utils.stack_sequences(
-         max_length_Y, Y_train, Y_validate)
     # Convert to data dict
     # TODO: Do this in utils
     data = {}
     data['X_train'] = X_train
-    data['X_train_mask'] = X_train_mask
     data['X_validate'] = X_validate
-    data['X_validate_mask'] = X_validate_mask
     data['Y_train'] = Y_train
-    data['Y_train_mask'] = Y_train_mask
     data['Y_validate'] = Y_validate
-    data['Y_validate_mask'] = Y_validate_mask
 
     for _ in range(N_TRIALS):
         # Get new parameter suggestion
