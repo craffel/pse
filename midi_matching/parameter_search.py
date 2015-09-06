@@ -84,7 +84,7 @@ def objective(params, data):
             if not np.isfinite(e_r['train_cost']):
                 break
             epochs.append((e_r, X_p, Y_p))
-            print "{}: {}, ".format(e_r['iteration'],
+            print "{:>8d}: {:.3f},".format(e_r['iteration'],
                                     e_r['validate_objective']),
             sys.stdout.flush()
     # If there was an error while training, report it to whetlab
