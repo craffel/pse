@@ -198,10 +198,15 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
             epoch_result['validate_objective'] = utils.bhatt_coeff(
                 in_dists, out_dists)
 
+            # Test whether this validate cost is the new smallest
             if epoch_result['validate_cost'] < current_validate_cost:
+                # To update patience, we must be smaller than
+                # improvement_threshold*(previous lowest validation cost)
                 patience_cost = improvement_threshold*current_validate_cost
                 if epoch_result['validate_cost'] < patience_cost:
+                    # Increase patience by the supplied about
                     patience += epoch_size*patience_increase
+                # Even if we didn't increase patience, update lowest valid cost
                 current_validate_cost = epoch_result['validate_cost']
 
             # Yield scores and statistics for this epoch
