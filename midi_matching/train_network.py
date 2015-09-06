@@ -170,9 +170,9 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
             validate_batches = 0
             X_val_output = []
             Y_val_output = []
-            for n in range(0, X_validate.shape[0], batch_size):
+            for batch_idx in range(0, X_validate.shape[0], batch_size):
                 # Extract slice from validation set for this batch
-                batch_slice = slice(n, n + batch_size)
+                batch_slice = slice(batch_idx, batch_idx + batch_size)
                 # Compute and accumulate cost
                 epoch_result['validate_cost'] += cost(
                     X_validate[batch_slice],
