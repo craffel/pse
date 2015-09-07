@@ -90,13 +90,17 @@ def objective(params, data, output_path):
         optimizer = functools.partial(
             lasagne.updates.nesterov_momentum, learning_rate=learning_rate,
             momentum=momentum)
-    # By abuse of notation, 'momentum' is rho in RMSProp and beta2 in adam
     elif params['optimizer'] == 'rmsprop':
+        # By abuse of notation, 'momentum' is rho in RMSProp
         optimizer = functools.partial(
             lasagne.updates.rmsprop, learning_rate=learning_rate, rho=momentum)
     elif params['optimizer'] == 'adam':
+        # Also abusing, momentum is beta2, except we squash the value so that
+        # it is usually close to 1 because small beta2 values don't make
+        # much sense
+        beta2 = float(np.tanh(momentum*5))
         optimizer = functools.partial(
-            lasagne.updates.adam, learning_rate=learning_rate, beta2=momentum)
+            lasagne.updates.adam, learning_rate=learning_rate, beta2=beta2)
     # Compute max length as median of lengths
     max_length_X = int(np.median([len(X) for X in data['X_train']]))
     max_length_Y = int(np.median([len(Y) for Y in data['Y_train']]))
@@ -163,7 +167,7 @@ if __name__ == '__main__':
         'alpha_XY': {'type': 'float', 'min': 0, 'max': 1},
         'm_XY': {'type': 'int', 'min': 1, 'max': 16},
         'learning_rate_exp': {'type': 'int', 'min': -6, 'max': -2},
-        'momentum': {'type': 'enum', 'options': [.9, .99, .999]},
+        'momentum': {'type': 'float', 'min': 0, 'max': .999},
         'optimizer': {'type': 'enum', 'options': ['NAG', 'rmsprop', 'adam']}}
 
     experiment = simple_spearmint.SimpleSpearmint(space, noiseless=False)
