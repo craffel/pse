@@ -19,6 +19,40 @@ N_TRIALS = 100
 OUTPUT_DIM = 128
 
 
+def layer_specs_from_params(params):
+    '''
+    Convert params from simple_spearmint to arguments to pass to
+    utils.build_network.
+
+    Parameters
+    ----------
+    params : dict
+        Dictionary including keys 'n_conv_layers' and 'n_dense_layers'
+
+    Returns
+    -------
+    conv_layer_specs, dense_layer_specs : list of dict
+        List of dicts, where each dict corresponds to keyword arguments
+        for each subsequent layer.  Note that
+        dense_layer_specs[-1]['num_units'] should be the output dimensionality
+        of the network.
+    '''
+    # Construct layer specifications from parameters
+    # First convolutional layer always has 5x12 filters, rest always 3x3
+    conv_layer_specs = [{'filter_size': (5, 12), 'num_filters': 16},
+                        {'filter_size': (3, 3), 'num_filters': 32},
+                        {'filter_size': (3, 3), 'num_filters': 64}]
+    # Truncate the conv_layer_specs list according to how many layers
+    conv_layer_specs = conv_layer_specs[:params['n_conv_layers']]
+    # ALways have the final dense output layer have OUTPUT_DIM units,
+    # optionally have another with 2048 units
+    dense_layer_specs = [
+        {'num_units': 2048, 'nonlinearity': lasagne.nonlinearities.rectify},
+        {'num_units': OUTPUT_DIM, 'nonlinearity': lasagne.nonlinearities.tanh}]
+    dense_layer_specs = dense_layer_specs[-params['n_dense_layers']:]
+    return conv_layer_specs, dense_layer_specs
+
+
 def objective(params, data):
     """
     Parameters
@@ -39,19 +73,8 @@ def objective(params, data):
     ----
     Will return None, None, None if training diverged before one epoch
     """
-    # Construct layer specifications from parameters
-    # First convolutional layer always has 5x12 filters, rest always 3x3
-    conv_layer_specs = [{'filter_size': (5, 12), 'num_filters': 16},
-                        {'filter_size': (3, 3), 'num_filters': 32},
-                        {'filter_size': (3, 3), 'num_filters': 64}]
-    # Truncate the conv_layer_specs list according to how many layers
-    conv_layer_specs = conv_layer_specs[:params['n_conv_layers']]
-    # ALways have the final dense output layer have OUTPUT_DIM units,
-    # optionally have another with 2048 units
-    dense_layer_specs = [
-        {'num_units': 2048, 'nonlinearity': lasagne.nonlinearities.rectify},
-        {'num_units': OUTPUT_DIM, 'nonlinearity': lasagne.nonlinearities.tanh}]
-    dense_layer_specs = dense_layer_specs[-params['n_dense_layers']:]
+    # Convert # layers params to layer specification lists
+    conv_layer_specs, dense_layer_specs = layer_specs_from_params(params)
     # Convert learning rate exponent to actual learning rate
     learning_rate = float(10**params['learning_rate_exp'])
     # Avoid upcasting from using a 0d ndarray, use python float instead.
