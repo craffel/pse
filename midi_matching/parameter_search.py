@@ -13,10 +13,12 @@ sys.path.append('..')
 import utils
 import numpy as np
 import traceback
+import cPickle as pickle
 
 BASE_DATA_DIRECTORY = 'data/'
 N_TRIALS = 100
 OUTPUT_DIM = 128
+RESULTS_PATH = 'parameter_trials'
 
 
 def layer_specs_from_params(params):
@@ -54,7 +56,7 @@ def layer_specs_from_params(params):
     return conv_layer_specs, dense_layer_specs
 
 
-def objective(params, data):
+def objective(params, data, output_path):
     """
     Parameters
     ----------
@@ -62,6 +64,9 @@ def objective(params, data):
         Dictionary which maps parameter names to their values
     data : dict
         Data dictionary to pass to train_network.train
+    output_path : str
+        Where to write the results file for this trial.  If the trial fails,
+        no results file will be written.
 
     Returns
     -------
@@ -126,12 +131,32 @@ def objective(params, data):
     # If no epochs were completed due to an error or NaN cost, return Nones
     if len(epochs) == 0:
         return None, None, None
-    # Find the index of the epoch with the lowest validate cost
-    best_epoch = np.argmin([e[0]['validate_objective'] for e in epochs])
-    return epochs[best_epoch]
+
+    # Find the index of the epoch with the lowest objective value
+    best_epoch_idx = np.argmin([e[0]['validate_objective'] for e in epochs])
+    best_epoch, X_params, Y_params = epochs[best_epoch_idx]
+
+    # Convert params dict to a string of the form
+    # param1_name_param1_value_param2_name_param2_value...
+    param_string = "_".join(
+        '{}_{}'.format(name, val) if type(val) != float else
+        '{}_{:.3f}'.format(name, val) for name, val in params.items())
+    # Construct a path where the pickle results file will be written
+    output_filename = os.path.join(output_path,
+                                   "{}.pkl".format(param_string))
+    # Store this result
+    with open(output_filename, 'wb') as f:
+        pickle.dump({'params': params, 'best_epoch': best_epoch}, f)
+
+    return best_epoch, X_params, Y_params
 
 
 if __name__ == '__main__':
+
+    # Create the results dir if it doesn't exist
+    if not os.path.exists(RESULTS_PATH):
+        os.makedirs(RESULTS_PATH)
+
     space = {
         'n_dense_layers': {'type': 'int', 'min': 1, 'max': 3},
         'n_conv_layers': {'type': 'int', 'min': 1, 'max': 3},
@@ -174,7 +199,7 @@ if __name__ == '__main__':
         params = experiment.suggest()
         print params
         # Train a network with these parameters
-        best_epoch, X_params, Y_params = objective(params, data)
+        best_epoch, X_params, Y_params = objective(params, data, RESULTS_PATH)
         if best_epoch is not None:
             print "Objective:", best_epoch
             print
