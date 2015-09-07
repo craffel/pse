@@ -5,7 +5,6 @@ import functools
 import lasagne
 import simple_spearmint
 import train_network
-import lasagne
 import glob
 import os
 import sys
