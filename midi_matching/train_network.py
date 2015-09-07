@@ -208,6 +208,8 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
                     patience += epoch_size*patience_increase
                 # Even if we didn't increase patience, update lowest valid cost
                 current_validate_cost = epoch_result['validate_cost']
+            # Store patience after this epoch
+            epoch_result['patience'] = patience
 
             # Yield scores and statistics for this epoch
             X_params = lasagne.layers.get_all_param_values(layers['X']['out'])

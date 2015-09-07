@@ -73,6 +73,9 @@ def objective(params, data):
     max_length_X = int(np.median([len(X) for X in data['X_train']]))
     max_length_Y = int(np.median([len(Y) for Y in data['Y_train']]))
     epochs = []
+    # Pretty-print epoch status table header
+    print "{:>9} | {:>9} | {:>9} | {:>9}".format(
+        'iteration', 'objective', 'patience', 'valid cost')
     try:
         # Train the network, accumulating epoch results as we go
         for (e_r, X_p, Y_p) in train_network.train(
@@ -84,8 +87,10 @@ def objective(params, data):
             if not np.isfinite(e_r['train_cost']):
                 break
             epochs.append((e_r, X_p, Y_p))
-            print "{:>8d}: {:.3f},".format(e_r['iteration'],
-                                    e_r['validate_objective']),
+            # Print status after this epoch
+            print "{:>9d} | {:.7f} | {:>9d} | {:.7f}".format(
+                e_r['iteration'], e_r['validate_objective'],
+                e_r['patience'], e_r['validate_cost'])
             sys.stdout.flush()
     # If there was an error while training, report it to whetlab
     except Exception:
