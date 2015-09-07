@@ -146,7 +146,11 @@ if __name__ == '__main__':
         print params
         # Train a network with these parameters
         best_epoch, X_params, Y_params = objective(params, data)
-        print "Objective:", best_epoch
-        print
-        # Update hyperparameter optimizer
-        experiment.update(params, best_epoch['validate_objective'])
+        if best_epoch is not None:
+            print "Objective:", best_epoch
+            print
+            # Update hyperparameter optimizer
+            experiment.update(params, best_epoch['validate_objective'])
+        else:
+            print 'Failed.'
+            experiment.update(params, np.nan)
