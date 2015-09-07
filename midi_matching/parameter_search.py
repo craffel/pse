@@ -183,15 +183,13 @@ if __name__ == '__main__':
     data['Y_train'] = Y_train
     data['Y_validate'] = Y_validate
 
-    # Add known parameter settings
-    params = {'dense_dropout': 0, 'm_XY': 1, 'n_dense_layers': 1,
-              'n_conv_layers': 1, 'optimizer': 'NAG', 'alpha_XY': 0.0,
-              'learning_rate_exp': -6, 'momentum': 0.9}
-    experiment.update(params, .97)
-    params = {'dense_dropout': 0, 'm_XY': 8, 'n_dense_layers': 1,
-              'n_conv_layers': 2, 'optimizer': 'NAG', 'alpha_XY': 0.5,
-              'learning_rate_exp': -4, 'momentum': 0.9}
-    experiment.update(params, .475)
+    # Load in all trial results pickle files
+    for trial_file in glob.glob(os.path.join(RESULTS_PATH, '*.pkl')):
+        with open(trial_file) as f:
+            trial = pickle.load(f)
+            # Seed the experiment with the result from this trial
+            experiment.update(
+                trial['params'], trial['best_epoch']['validate_objective'])
 
     for _ in range(N_TRIALS):
         # Get new parameter suggestion
