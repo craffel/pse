@@ -124,20 +124,12 @@ def objective(params, data, output_path):
                 e_r['iteration'], e_r['validate_objective'],
                 e_r['patience'], e_r['validate_cost'])
             sys.stdout.flush()
-    # If there was an error while training, report it to whetlab
+    # If there was an error while training, delete epochs to dump NaN epoch
     except Exception:
         print "ERROR: "
         print traceback.format_exc()
-        return None, None, None
+        epochs = []
     print
-
-    # If no epochs were completed due to an error or NaN cost, return Nones
-    if len(epochs) == 0:
-        return None, None, None
-
-    # Find the index of the epoch with the lowest objective value
-    best_epoch_idx = np.argmin([e[0]['validate_objective'] for e in epochs])
-    best_epoch, X_params, Y_params = epochs[best_epoch_idx]
 
     # Convert params dict to a string of the form
     # param1_name_param1_value_param2_name_param2_value...
@@ -147,6 +139,22 @@ def objective(params, data, output_path):
     # Construct a path where the pickle results file will be written
     output_filename = os.path.join(output_path,
                                    "{}.pkl".format(param_string))
+
+    # If no epochs were completed due to an error or NaN cost, write out a NaN
+    # epoch and return Nones
+    if len(epochs) == 0:
+        # Store a fake NaN best epoch
+        nan_epoch = {'iteration': 0, 'validate_objective': np.nan,
+                     'patience': 0, 'validate_cost': np.nan}
+        with open(output_filename, 'wb') as f:
+            pickle.dump({'params': params,
+                         'best_epoch': nan_epoch}, f)
+        return None, None, None
+
+    # Find the index of the epoch with the lowest objective value
+    best_epoch_idx = np.argmin([e[0]['validate_objective'] for e in epochs])
+    best_epoch, X_params, Y_params = epochs[best_epoch_idx]
+
     # Store this result
     with open(output_filename, 'wb') as f:
         pickle.dump({'params': params, 'best_epoch': best_epoch}, f)
