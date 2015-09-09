@@ -20,24 +20,54 @@ OUTPUT_DIM = 128
 RESULTS_PATH = 'parameter_trials'
 
 
-def layer_specs_from_params(params):
-    '''
-    Convert params from simple_spearmint to arguments to pass to
-    utils.build_network.
+def write_result(params, best_epoch, output_path):
+    """ Write the result of a parameter search trial, i.e. a pickle file with
+    the parameters used and the best epoch during training.
 
     Parameters
     ----------
     params : dict
-        Dictionary including keys 'n_conv_layers' and 'n_dense_layers'
+        Dictionary which maps parameter names to their values
+    data : dict
+        Data dictionary to pass to train_network.train
+    output_path : str
+        Where to write the results file for this trial.  If the trial fails,
+        no results file will be written.
+    """
+    # Convert params dict to a string of the form
+    # param1_name_param1_value_param2_name_param2_value...
+    param_string = "_".join(
+        '{}_{}'.format(name, val) if type(val) != float else
+        '{}_{:.3f}'.format(name, val) for name, val in params.items())
+    # Construct a path where the pickle results file will be written
+    output_filename = os.path.join(
+        output_path, "{}.pkl".format(param_string))
+
+    # Store this result
+    with open(output_filename, 'wb') as f:
+        pickle.dump({'params': params, 'best_epoch': best_epoch}, f)
+
+
+def objective(params, data):
+    """
+    Parameters
+    ----------
+    params : dict
+        Dictionary which maps parameter names to their values
+    data : dict
+        Data dictionary to pass to train_network.train
 
     Returns
     -------
-    conv_layer_specs, dense_layer_specs : list of dict
-        List of dicts, where each dict corresponds to keyword arguments
-        for each subsequent layer.  Note that
-        dense_layer_specs[-1]['num_units'] should be the output dimensionality
-        of the network.
-    '''
+    best_epoch : dict
+        Results dictionary for the epoch with the lowest cost
+    best_X_params, best_Y_params : dict
+        X and Y network parameters with the lowest validation cost
+
+    Note
+    ----
+    Will return None, None, None if training diverged before one epoch
+    """
     # Construct layer specifications from parameters
     # First convolutional layer always has 5x12 filters, rest always 3x3
     conv_layer_specs = [{'filter_size': (5, 12), 'num_filters': 16},
@@ -52,34 +82,6 @@ def layer_specs_from_params(params):
         {'num_units': 2048, 'nonlinearity': lasagne.nonlinearities.rectify},
         {'num_units': OUTPUT_DIM, 'nonlinearity': lasagne.nonlinearities.tanh}]
     dense_layer_specs = dense_layer_specs[-params['n_dense_layers']:]
-    return conv_layer_specs, dense_layer_specs
-
-
-def objective(params, data, output_path):
-    """
-    Parameters
-    ----------
-    params : dict
-        Dictionary which maps parameter names to their values
-    data : dict
-        Data dictionary to pass to train_network.train
-    output_path : str
-        Where to write the results file for this trial.  If the trial fails,
-        no results file will be written.
-
-    Returns
-    -------
-    best_epoch : dict
-        Results dictionary for the epoch with the lowest cost
-    best_X_params, best_Y_params : dict
-        X and Y network parameters with the lowest validation cost
-
-    Note
-    ----
-    Will return None, None, None if training diverged before one epoch
-    """
-    # Convert # layers params to layer specification lists
-    conv_layer_specs, dense_layer_specs = layer_specs_from_params(params)
     # Convert learning rate exponent to actual learning rate
     learning_rate = float(10**params['learning_rate_exp'])
     # Avoid upcasting from using a 0d ndarray, use python float instead.
@@ -128,36 +130,13 @@ def objective(params, data, output_path):
     except Exception:
         print "ERROR: "
         print traceback.format_exc()
-        epochs = []
+        return {'iteration': 0, 'validate_objective': np.nan,
+                'patience': 0, 'validate_cost': np.nan}, [], []
     print
-
-    # Convert params dict to a string of the form
-    # param1_name_param1_value_param2_name_param2_value...
-    param_string = "_".join(
-        '{}_{}'.format(name, val) if type(val) != float else
-        '{}_{:.3f}'.format(name, val) for name, val in params.items())
-    # Construct a path where the pickle results file will be written
-    output_filename = os.path.join(output_path,
-                                   "{}.pkl".format(param_string))
-
-    # If no epochs were completed due to an error or NaN cost, write out a NaN
-    # epoch and return Nones
-    if len(epochs) == 0:
-        # Store a fake NaN best epoch
-        nan_epoch = {'iteration': 0, 'validate_objective': np.nan,
-                     'patience': 0, 'validate_cost': np.nan}
-        with open(output_filename, 'wb') as f:
-            pickle.dump({'params': params,
-                         'best_epoch': nan_epoch}, f)
-        return None, None, None
 
     # Find the index of the epoch with the lowest objective value
     best_epoch_idx = np.argmin([e[0]['validate_objective'] for e in epochs])
     best_epoch, X_params, Y_params = epochs[best_epoch_idx]
-
-    # Store this result
-    with open(output_filename, 'wb') as f:
-        pickle.dump({'params': params, 'best_epoch': best_epoch}, f)
 
     return best_epoch, X_params, Y_params
 
@@ -208,12 +187,9 @@ if __name__ == '__main__':
         params = experiment.suggest()
         print params
         # Train a network with these parameters
-        best_epoch, X_params, Y_params = objective(params, data, RESULTS_PATH)
-        if best_epoch is not None:
-            print "Objective:", best_epoch
-            print
-            # Update hyperparameter optimizer
-            experiment.update(params, best_epoch['validate_objective'])
-        else:
-            print 'Failed.'
-            experiment.update(params, np.nan)
+        best_epoch, X_params, Y_params = objective(params, data)
+        write_result(params, best_epoch, RESULTS_PATH)
+        print "Objective:", best_epoch
+        print
+        # Update hyperparameter optimizer
+        experiment.update(params, best_epoch['validate_objective'])
