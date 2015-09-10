@@ -13,6 +13,34 @@ BASE_DATA_DIRECTORY = 'data/'
 RESULTS_PATH = 'parameter_trials'
 MODEL_PATH = 'best_model'
 
+
+def get_best_trial(results_path):
+    """ Get the hyperparameter setting and epoch corresponding to the lowest
+    objective value.
+
+    Parameters
+    ----------
+    results_path : str
+        Path to trial result .pkl files
+
+    Returns
+    -------
+    best_params : dict
+        Hyperparameter dictionary for the lowest-objective epoch
+    best_epoch : dict
+        Epoch result for the lowest-objective epoch across all trials
+    """
+    # Load in all trial results pickle files
+    trials = []
+    for trial_file in glob.glob(os.path.join(results_path, '*.pkl')):
+        with open(trial_file) as f:
+            trials.append(pickle.load(f))
+
+    # Find the trial with the smallest validate objective
+    trials.sort(key=lambda x: x['best_epoch']['validate_objective'])
+    return trials[0]['params'], trials[0]['best_epoch']
+
+
 if __name__ == '__main__':
 
     train_list = list(glob.glob(os.path.join(
@@ -30,18 +58,9 @@ if __name__ == '__main__':
     data['Y_train'] = Y_train
     data['Y_validate'] = Y_validate
 
-    # Load in all trial results pickle files
-    trials = []
-    for trial_file in glob.glob(os.path.join(RESULTS_PATH, '*.pkl')):
-        with open(trial_file) as f:
-            trials.append(pickle.load(f))
-
-    # Find the trial with the smallest validate objective
-    trials.sort(key=lambda x: x['best_epoch']['validate_objective'])
-    best_params = trials[0]['params']
+    best_params, best_epoch = get_best_trial(RESULTS_PATH)
     print best_params
-    print 'Expected objective: {}'.format(
-        trials[0]['best_epoch']['validate_objective'])
+    print 'Expected objective: {}'.format(best_epoch['validate_objective'])
 
     # Train a network with this data
     best_epoch, X_params, Y_params = train_network.objective(best_params, data)
