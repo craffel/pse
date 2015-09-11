@@ -134,7 +134,7 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
           dense_layer_specs, dense_dropout, alpha_XY, m_XY,
           optimizer=lasagne.updates.rmsprop, batch_size=20, epoch_size=100,
           initial_patience=1000, improvement_threshold=0.99,
-          patience_increase=10, max_iter=100000):
+          patience_increase=5, max_iter=100000):
     ''' Utility function for training a siamese net for cross-modality hashing
     Assumes data['X_train'][n] should be mapped close to data['Y_train'][m]
     only when n == m
