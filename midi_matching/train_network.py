@@ -119,9 +119,15 @@ def objective(params, data):
     except Exception:
         print "ERROR: "
         print traceback.format_exc()
+        epochs = []
+    print
+
+    # When no epochs were succesful, or some validate objective was np.nan,
+    # return a nan epoch for the best one
+    if len(epochs) == 0 or any([not np.isfinite(e[0]['validate_objective'])
+                                for e in epochs]):
         return {'iteration': 0, 'validate_objective': np.nan,
                 'patience': 0, 'validate_cost': np.nan}, [], []
-    print
 
     # Find the index of the epoch with the lowest objective value
     best_epoch_idx = np.argmin([e[0]['validate_objective'] for e in epochs])
