@@ -103,9 +103,8 @@ def objective(params, data):
         # Train the network, accumulating epoch results as we go
         for (e_r, X_p, Y_p) in train(
                 data, max_length_X, max_length_Y, conv_layer_specs,
-                dense_layer_specs, params['dense_dropout'],
-                float(params['alpha_XY']), float(params['m_XY']),
-                optimizer=optimizer):
+                dense_layer_specs, float(params['alpha_XY']),
+                float(params['m_XY']), optimizer=optimizer):
             # Stop training of a nan training cost is encountered
             if not np.isfinite(e_r['train_cost']):
                 break
@@ -138,10 +137,9 @@ def objective(params, data):
 
 
 def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
-          dense_layer_specs, dense_dropout, alpha_XY, m_XY,
-          optimizer=lasagne.updates.rmsprop, batch_size=20, epoch_size=100,
-          initial_patience=1000, improvement_threshold=0.99,
-          patience_increase=5, max_iter=100000):
+          dense_layer_specs, alpha_XY, m_XY, optimizer=lasagne.updates.rmsprop,
+          batch_size=20, epoch_size=100, initial_patience=1000,
+          improvement_threshold=0.99, patience_increase=5, max_iter=100000):
     ''' Utility function for training a siamese net for cross-modality hashing
     Assumes data['X_train'][n] should be mapped close to data['Y_train'][m]
     only when n == m
@@ -158,8 +156,6 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
             for each subsequent layer.  Note that
             dense_layer_specs[-1]['num_units'] should be the output
             dimensionality of the network.
-        - dense_dropout : bool
-            If True, include dropout between the dense layers
         - alpha_XY : float
             Scaling parameter for cross-modality negative example cost
         - m_XY : int
@@ -189,10 +185,10 @@ def train(data, sample_size_X, sample_size_Y, conv_layer_specs,
     layers = {
         'X': utils.build_network(
             (None, None, data['X_train'][0].shape[-1]), conv_layer_specs,
-            dense_layer_specs, dense_dropout),
+            dense_layer_specs),
         'Y': utils.build_network(
             (None, None, data['Y_train'][0].shape[-1]), conv_layer_specs,
-            dense_layer_specs, dense_dropout)}
+            dense_layer_specs)}
     # Inputs to X modality neural nets
     X_p_input = T.tensor3('X_p_input')
     X_n_input = T.tensor3('X_n_input')

@@ -52,7 +52,6 @@ if __name__ == '__main__':
     space = {
         'n_dense_layers': {'type': 'int', 'min': 1, 'max': 3},
         'n_conv_layers': {'type': 'int', 'min': 1, 'max': 3},
-        'dense_dropout': {'type': 'enum', 'options': [0, 1]},
         'alpha_XY': {'type': 'float', 'min': 0, 'max': 1},
         'm_XY': {'type': 'int', 'min': 1, 'max': 16},
         'learning_rate_exp': {'type': 'int', 'min': -6, 'max': -2},

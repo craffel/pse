@@ -43,10 +43,10 @@ if __name__ == '__main__':
     layers = {
         'X': utils.build_network(
             (None, None, X_train[0].shape[-1]), conv_layer_specs,
-            dense_layer_specs, best_params['dense_dropout']),
+            dense_layer_specs),
         'Y': utils.build_network(
             (None, None, Y_train[0].shape[-1]), conv_layer_specs,
-            dense_layer_specs, best_params['dense_dropout'])}
+            dense_layer_specs)}
     # Load in parameters of trained best-performing networks
     with open(os.path.join(MODEL_PATH, 'X_params.pkl')) as f:
         X_params = pickle.load(f)

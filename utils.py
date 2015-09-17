@@ -289,8 +289,7 @@ class AttentionLayer(lasagne.layers.Layer):
         return weighted_input.sum(axis=1)
 
 
-def build_network(input_shape, conv_layer_specs,
-                  dense_layer_specs, dense_dropout):
+def build_network(input_shape, conv_layer_specs, dense_layer_specs):
     '''
     Construct a list of layers of a network given the network's structure.
 
@@ -303,8 +302,6 @@ def build_network(input_shape, conv_layer_specs,
         for each subsequent layer.  Note that
         dense_layer_specs[-1]['num_units'] should be the output dimensionality
         of the network.
-    dense_dropout : bool
-        If True, include dropout between the dense layers
 
     Returns
     -------
@@ -341,9 +338,6 @@ def build_network(input_shape, conv_layer_specs,
         layer, W=lasagne.init.Normal(1./np.sqrt(layer.output_shape[-1])))
     # Add dense layers
     for layer_spec in dense_layer_specs:
-        # Optionally include dropout
-        if dense_dropout:
-            layer = lasagne.layers.DropoutLayer(layer)
         layer = lasagne.layers.DenseLayer(
             layer, W=lasagne.init.HeNormal(), **layer_spec)
     # Keep track of the final layer
