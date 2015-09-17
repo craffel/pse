@@ -52,10 +52,10 @@ if __name__ == '__main__':
     space = {
         'n_dense_layers': {'type': 'int', 'min': 1, 'max': 3},
         'n_conv_layers': {'type': 'int', 'min': 1, 'max': 3},
-        'alpha_XY': {'type': 'float', 'min': 0, 'max': 1},
+        'alpha_XY': {'type': 'float', 'min': 0, 'max': 3},
         'm_XY': {'type': 'int', 'min': 1, 'max': 16},
         'learning_rate_exp': {'type': 'int', 'min': -6, 'max': -2},
-        'momentum': {'type': 'float', 'min': 0, 'max': .999},
+        'momentum': {'type': 'float', 'min': 0, 'max': .9999},
         'optimizer': {'type': 'enum', 'options': ['NAG', 'rmsprop', 'adam']}}
 
     experiment = simple_spearmint.SimpleSpearmint(space, noiseless=False)
