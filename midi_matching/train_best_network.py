@@ -8,6 +8,7 @@ sys.path.append('..')
 import utils
 import cPickle as pickle
 import train_network
+import numpy as np
 
 BASE_DATA_DIRECTORY = 'data/'
 RESULTS_PATH = 'parameter_trials'
@@ -34,7 +35,10 @@ def get_best_trial(results_path):
     trials = []
     for trial_file in glob.glob(os.path.join(results_path, '*.pkl')):
         with open(trial_file) as f:
-            trials.append(pickle.load(f))
+            trial = pickle.load(f)
+            # Ignore failed trials
+            if not np.isnan(trial['best_epoch']['validate_objective']):
+                trials.append(trial)
 
     # Find the trial with the smallest validate objective
     trials.sort(key=lambda x: x['best_epoch']['validate_objective'])
