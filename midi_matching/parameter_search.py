@@ -9,6 +9,8 @@ sys.path.append('..')
 import utils
 import cPickle as pickle
 import train_network
+import numpy as np
+import collections
 
 BASE_DATA_DIRECTORY = 'data/'
 N_TRIALS = 100
@@ -87,6 +89,12 @@ if __name__ == '__main__':
         # Get new parameter suggestion
         params = experiment.suggest()
         print params
+        if np.allclose(params['alpha_XY'], 0):
+            print "Skipping."
+            write_result(params, collections.OrderedDict(
+                iteration=0, train_cost=np.nan, validate_cost=np.nan,
+                validate_objective=np.nan, patience=0), RESULTS_PATH)
+            continue
         # Train a network with these parameters
         best_epoch, X_params, Y_params = train_network.objective(params, data)
         write_result(params, best_epoch, RESULTS_PATH)

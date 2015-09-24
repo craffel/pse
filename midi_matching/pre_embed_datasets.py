@@ -67,6 +67,9 @@ if __name__ == '__main__':
     # Pre-allocate embedding matrix
     embedded_Y = np.empty((len(Y_files), train_network.OUTPUT_DIM),
                           dtype=theano.config.floatX)
+    # Pre-allocate statistics matrix
+    D = Y_train[0].shape[-1]
+    statistics_Y = np.empty((len(Y_files), 2*D), dtype=theano.config.floatX)
     # Keep track of which row in embedded_Y corresponds to which MSD ID
     npy_mapping = []
     # We will process this many sequences at a time
@@ -80,9 +83,15 @@ if __name__ == '__main__':
         # Store the npy files corresponding to this batch
         npy_mapping += Y_files[batch_idx:batch_idx + batch_size]
         # Load in a list of this batch
-        batch = [(np.load(Y_files[n]) - Y_mean)/Y_std for n in
-                 range(batch_idx, batch_idx + batch_size)
+        batch = [np.load(Y_files[n])
+                 for n in range(batch_idx, batch_idx + batch_size)
                  if n < len(Y_files)]
+        # Compute mean/std for each sequence in this batch
+        for n, Y in enumerate(batch):
+            statistics_Y[batch_idx + n, :D] = np.mean(Y, axis=0)
+            statistics_Y[batch_idx + n, D:] = np.std(Y, axis=0)
+        # Normalize batch by trianing set mean/std
+        batch = [(Y - Y_mean)/Y_std for Y in batch]
         # Randomly sample subsequences of this batch
         batch = utils.sample_sequences(batch, max_length_Y)
         # Embed the batch and store the embedding in the matrix
@@ -94,27 +103,38 @@ if __name__ == '__main__':
         now = time.time()
         sys.stdout.flush()
     print 'Done.'
-    # Write out embedding matrix and mapping
+    # Write out embedding matrix statistics matrix and mapping
     np.save('data/msd_embedded.npy', embedded_Y)
+    np.save('data/msd_statistics.npy', statistics_Y)
     with open('data/msd_embedded_mapping.pkl', 'wb') as f:
         pickle.dump(npy_mapping, f)
 
     # Embed MIDI cqts from dev and test sets
     for dataset in ['dev', 'test']:
         # Where will we write out the files?
-        output_path = os.path.join(BASE_DATA_PATH,
-                                   '{}_embedded'.format(dataset))
-        if not os.path.exists(output_path):
-            os.makedirs(output_path)
+        embedded_path = os.path.join(BASE_DATA_PATH,
+                                     '{}_embedded'.format(dataset))
+        if not os.path.exists(embedded_path):
+            os.makedirs(embedded_path)
+        statistics_path = os.path.join(BASE_DATA_PATH,
+                                       '{}_statistics'.format(dataset))
+        if not os.path.exists(statistics_path):
+            os.makedirs(statistics_path)
         # Get all CQT npy files
         X_files = glob.glob(os.path.join(BASE_DATA_PATH, dataset, '*.npy'))
         # Load in all CQTs from the files
         X_cqts = []
         for filename in X_files:
+            X = np.load(filename)
+            # Compute mean/std for the file
+            X_statistics = np.append(np.mean(X, axis=0), np.std(X, axis=0))
+            # Write out statistics
+            output_file = os.path.join(
+                statistics_path, os.path.split(filename)[1])
+            np.save(output_file, X_statistics)
             # Convert to floatX with correct column order
             X_cqts.append(np.array(
-                (np.load(filename) - X_mean)/X_std,
-                dtype=theano.config.floatX, order='C'))
+                (X - X_mean)/X_std, dtype=theano.config.floatX, order='C'))
         # Randomly sample subsequences
         X_cqts = utils.sample_sequences(X_cqts, max_length_X)
         # Process fewer sequences at once because they are longer
@@ -132,7 +152,7 @@ if __name__ == '__main__':
                 if batch_idx + n >= X_cqts.shape[0]:
                     break
                 output_file = os.path.join(
-                    output_path, os.path.split(X_files[batch_idx + n])[1])
+                    embedded_path, os.path.split(X_files[batch_idx + n])[1])
                 np.save(output_file, batch_embedded[n])
             # Report percent done
             print "\r{:.3f}%".format(
