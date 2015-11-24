@@ -397,8 +397,8 @@ def bhatt_coeff(x, y, bins=20):
     # Find histogram range - min to max
     bounds = [min(min(x), min(y)), max(max(x), max(y))]
     # Compute histograms
-    x_hist = np.histogram(x, bins=20, range=bounds)[0]
-    y_hist = np.histogram(y, bins=20, range=bounds)[0]
+    x_hist = np.histogram(x, bins=bins, range=bounds)[0]
+    y_hist = np.histogram(y, bins=bins, range=bounds)[0]
     # Normalize
     x_hist = x_hist.astype(float)/x_hist.sum()
     y_hist = y_hist.astype(float)/y_hist.sum()
