@@ -139,35 +139,58 @@ class AttentionLayer(lasagne.layers.Layer):
     incoming : a :class:`Layer` instance or a tuple
         The layer feeding into this layer, or the expected input shape
 
+    num_units : int
+        Dimensionality of the hidden layer.
+
     W : Theano shared variable, numpy array or callable
-        An initializer for the weights of the layer. If a shared variable or a
-        numpy array is provided the shape should  be (num_inputs,).
+        An initializer for the weight matrix of the hidden layer. If a shared
+        variable or a numpy array is provided the shape should be (num_inputs,
+        num_units).
 
     b : Theano shared variable, numpy array, callable or None
-        An initializer for the biases of the layer. If a shared variable or a
-        numpy array is provided the shape should be () (it is a scalar).
-        If None is provided the layer will have no biases.
+        An initializer for the bias vector of the hidden layer. If a shared
+        variable or a numpy array is provided the shape should be (num_units,).
+        If None is provided the hidden layer will have no biases.
+
+    v : Theano shared variable, numpy array or callable
+        An initializer for the attention mechanism weight vector. If a shared
+        variable or a numpy array is provided the shape should be (num_units,).
+
+    c : Theano shared variable, numpy array, callable or None
+        An initializer for the attention mechanism bias scalar. If a shared
+        variable or a numpy array is provided the shape should be () (it is a
+        scalar).  If None is provided the attention mechanism.
 
     nonlinearity : callable or None
-        The nonlinearity that is applied to the layer activations. If None
-        is provided, the layer will be linear.
+        The nonlinearity that is applied to the hidden layer activations. If
+        None is provided, the layer will be linear.
     '''
-    def __init__(self, incoming, W=lasagne.init.Normal(),
-                 b=lasagne.init.Constant(0.),
-                 nonlinearity=lasagne.nonlinearities.tanh,
-                 **kwargs):
+    def __init__(self, incoming, num_units, W=lasagne.init.Normal(),
+                 b=lasagne.init.Constant(0.), v=lasagne.init.Normal(),
+                 c=lasagne.init.Constant(0.),
+                 nonlinearity=lasagne.nonlinearities.tanh, **kwargs):
         super(AttentionLayer, self).__init__(incoming, **kwargs)
         # Use identity nonlinearity if provided nonlinearity is None
         self.nonlinearity = (lasagne.nonlinearities.identity
                              if nonlinearity is None else nonlinearity)
+        self.num_units = num_units
 
-        # Add weight vector parameter
-        self.W = self.add_param(W, (self.input_shape[2],), name="W")
+        # Add hidden weight matrix parameter
+        self.W = self.add_param(
+            W, (self.input_shape[2], self.num_units), name="W")
         if b is None:
             self.b = None
         else:
-            # Add bias scalar parameter
-            self.b = self.add_param(b, (), name="b", regularizable=False)
+            # Add hidden bias vector parameter
+            self.b = self.add_param(
+                b, (num_units,), name="b", regularizable=False)
+        # Add attention weight vector
+        self.v = self.add_param(v, (self.num_units,), name="v")
+        if c is None:
+            self.c = None
+        else:
+            # Add attention bias scalar parameter
+            self.c = self.add_param(c, (), name="c", regularizable=False)
 
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], input_shape[-1])
@@ -178,8 +201,11 @@ class AttentionLayer(lasagne.layers.Layer):
         # Add bias
         if self.b is not None:
             activation = activation + self.b
-        # Apply nonlinearity
-        activation = self.nonlinearity(activation)
+        # Apply nonlinearity and aggregate with v
+        activation = T.dot(self.nonlinearity(activation), self.v)
+        # Add bias
+        if self.c is not None:
+            activation = activation + self.c
         # Perform softmax
         activation = T.exp(activation)
         activation /= activation.sum(axis=1).dimshuffle(0, 'x')
