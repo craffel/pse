@@ -10,8 +10,7 @@ import collections
 
 
 def train(data, layers, negative_importance, negative_threshold,
-          entropy_importance, updates_function, sample_size_X=None,
-          sample_size_Y=None, batch_size=10, epoch_size=200,
+          entropy_importance, updates_function, batch_size=10, epoch_size=200,
           initial_patience=1000, improvement_threshold=0.99,
           patience_increase=5, max_iter=100000):
     '''
@@ -50,9 +49,6 @@ def train(data, layers, negative_importance, negative_threshold,
         factored out).
     batch_size : int
         Mini-batch size
-    sample_size_X, sample_size_Y : int or None
-        Sampled sequence length for X/Y modalities.  If None, use the median
-        sequence length from each modality.
     epoch_size : int
         Number of mini-batches per epoch
     initial_patience : int
@@ -129,24 +125,20 @@ def train(data, layers, negative_importance, negative_threshold,
     Y_output = theano.function([Y_input], lasagne.layers.get_output(
         layers['Y'][-1], Y_input, deterministic=True))
 
-    # If None was provided for either sequence length, use the median
-    if sample_size_X is None:
-        sample_size_X = int(np.median(
-            [X.shape[1] for X in data['X']['train']]))
-    if sample_size_Y is None:
-        sample_size_Y = int(np.median(
-            [Y.shape[1] for Y in data['Y']['train']]))
     # Create sampled sequences for validation
-    X_validate = utils.sample_sequences(data['X']['validate'], sample_size_X)
-    Y_validate = utils.sample_sequences(data['Y']['validate'], sample_size_Y)
+    X_validate = utils.sample_sequences(data['X']['validate'], batch_size)
+    Y_validate = utils.sample_sequences(data['Y']['validate'], batch_size)
     # Create fixed negative example validation set
-    X_validate_shuffle = np.random.permutation(X_validate.shape[0])
+    X_validate_shuffle = np.random.permutation(len(data['X']['validate']))
     Y_validate_shuffle = X_validate_shuffle[
-        utils.random_derangement(X_validate.shape[0])]
+        utils.random_derangement(len(data['Y']['validate']))]
+    X_validate_n = utils.sample_sequences(
+        [data['X']['validate'][n] for n in X_validate_shuffle], batch_size)
+    Y_validate_n = utils.sample_sequences(
+        [data['Y']['validate'][n] for n in Y_validate_shuffle], batch_size)
     # Create iterator to sample sequences from training data
     data_iterator = utils.get_next_batch(
-        data['X']['train'], data['Y']['train'], sample_size_X, sample_size_Y,
-        batch_size, max_iter)
+        data['X']['train'], data['Y']['train'], batch_size, max_iter)
     # We will accumulate the mean train cost over each epoch
     train_cost = 0
 
@@ -176,20 +168,16 @@ def train(data, layers, negative_importance, negative_threshold,
             validate_batches = 0
             X_val_output = []
             Y_val_output = []
-            for batch_idx in range(0, X_validate.shape[0], batch_size):
-                # Extract slice from validation set for this batch
-                batch_slice = slice(batch_idx, batch_idx + batch_size)
+            for batch_idx in range(len(X_validate)):
                 # Compute and accumulate cost
                 epoch_result['validate_cost'] += cost(
-                    X_validate[batch_slice],
-                    X_validate[X_validate_shuffle][batch_slice],
-                    Y_validate[batch_slice],
-                    Y_validate[Y_validate_shuffle][batch_slice])
+                    X_validate[batch_idx], X_validate_n[batch_idx],
+                    Y_validate[batch_idx], Y_validate_n[batch_idx])
                 # Keep track of # of batches for normalization
                 validate_batches += 1
                 # Compute network output and accumulate result
-                X_val_output.append(X_output(X_validate[batch_slice]))
-                Y_val_output.append(Y_output(Y_validate[batch_slice]))
+                X_val_output.append(X_output(X_validate[batch_idx]))
+                Y_val_output.append(Y_output(Y_validate[batch_idx]))
             # Normalize cost by number of batches and store
             epoch_result['validate_cost'] /= float(validate_batches)
             # Concatenate per-batch output to tensors

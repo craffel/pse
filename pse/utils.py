@@ -2,47 +2,46 @@
 Utilities for sequence embedding experiments.
 '''
 import numpy as np
-import theano
 import lasagne
 import theano.tensor as T
 
 
-def sample_sequences(X, sample_size):
-    ''' Given lists of sequences, crop out or pad sequences to length
-    sample_size from each sequence with a random offset
+def sample_sequences(X, batch_size):
+    ''' Create batches of sequences from a list of sequences, where each
+    sequence in each batch is cropped with a random offset so that it has the
+    same length as the smallest sequence in the batch.
 
     Parameters
     ----------
     X : list of np.ndarray
         List of sequence matrices, each with shape
         (n_filters, n_time_steps, n_features)
-    sample_size : int
-        The size of the cropped samples from the sequences
+    batch_size : int
+        The number of sequences to include in each batch.
 
     Returns
     -------
-    X_sampled : np.ndarray
-        Sampled sequences, shape
-        (n_samples, n_filters, n_time_steps, n_features)
+    X_sampled : List of np.ndarray
+        List of sampled sequences, each of shape
+        (batch_size, n_filters, n_time_steps, n_features)
     '''
+    N = len(X)
+    # We will populate this list with batches of sampled sequences
     X_sampled = []
-    for sequence_X in X:
-        # If a sequence is smaller than the provided sample size, append 0s
-        if sequence_X.shape[1] < sample_size:
-            # Append zeros to the sequence to make shape[0] = sample_size
-            X_pad = np.zeros(
-                (sequence_X.shape[0], sample_size - sequence_X.shape[1],
-                 sequence_X.shape[2]),
-                dtype=theano.config.floatX)
-            X_sampled.append(np.concatenate((sequence_X, X_pad), axis=1))
-        else:
-            # Compute a random offset to start cropping from
-            offset = np.random.random_integers(
-                0, sequence_X.shape[1] - sample_size)
-            # Extract a subsequence at the offset
-            X_sampled.append(sequence_X[:, offset:offset + sample_size])
-    # Combine into new output array
-    return np.array(X_sampled)
+    for i in range(0, N, batch_size):
+        # Get indices of this minibatch in the list of sequences
+        batch = range(i, min(i + batch_size, N))
+        # The length of each sequence in this batch will be the length of the
+        # shortest sequence in the batch
+        size = min(X[n].shape[1] for n in batch)
+        # Compute a random crop offset for each sequence in the batch
+        offsets = [np.random.random_integers(0, X[n].shape[1] - size)
+                   for n in batch]
+        # Construct the batch and append it to the output list
+        batch_sampled = [X[n][:, o:o + size] for n, o in zip(batch, offsets)]
+        X_sampled.append(np.array(batch_sampled))
+
+    return X_sampled
 
 
 def random_derangement(n):
@@ -77,19 +76,17 @@ def random_derangement(n):
                 return v
 
 
-def get_next_batch(X, Y, sample_size_X, sample_size_Y, batch_size, n_iter):
+def get_next_batch(X, Y, batch_size, n_iter):
     ''' Randomly generates positive and negative example minibatches
 
     Parameters
     ----------
-    X, Y : np.ndarray
+    X, Y : list of np.ndarray
         Sequence tensors for X/Y modalities
     sample_size_X, sample_size_Y : int
         Sampled sequence length for X/Y modalities
     batch_size : int
         Size of each minibatch to grab
-    sample_size : int
-        Size of each sampled sequence
     n_iter : int
         Total number of iterations to run
 
@@ -104,25 +101,28 @@ def get_next_batch(X, Y, sample_size_X, sample_size_Y, batch_size, n_iter):
     n_batches = 0
     for n in xrange(n_iter):
         if current_batch >= n_batches:
-            # Grab sampled sequences of length sample_size_* from X and Y
-            X_sampled = sample_sequences(X, sample_size_X)
-            Y_sampled = sample_sequences(Y, sample_size_Y)
-            N = X_sampled.shape[0]
-            n_batches = int(np.floor(N/float(batch_size)))
+            N = len(X)
             # Shuffle X_p and Y_p the same
             positive_shuffle = np.random.permutation(N)
-            X_p = np.array(X_sampled[positive_shuffle])
-            Y_p = np.array(Y_sampled[positive_shuffle])
+            # Construct batches from each shuffled collection of sequences
+            X_p = sample_sequences(
+                [X[n] for n in positive_shuffle], batch_size)
+            Y_p = sample_sequences(
+                [Y[n] for n in positive_shuffle], batch_size)
             # Shuffle X_n and Y_n differently (derangement ensures nothing
             # stays in the same place)
             negative_shuffle_X = np.random.permutation(N)
             negative_shuffle_Y = negative_shuffle_X[random_derangement(N)]
-            X_n = np.array(X_sampled[negative_shuffle_X])
-            Y_n = np.array(Y_sampled[negative_shuffle_Y])
+            X_n = sample_sequences(
+                [X[n] for n in negative_shuffle_X], batch_size)
+            Y_n = sample_sequences(
+                [Y[n] for n in negative_shuffle_Y], batch_size)
+            # Update the number of batches and reset the current batch index
+            n_batches = len(X_p)
             current_batch = 0
         # Yield batch slices
-        batch = slice(current_batch*batch_size, (current_batch + 1)*batch_size)
-        yield (X_p[batch], Y_p[batch], X_n[batch], Y_n[batch])
+        yield (X_p[current_batch], Y_p[current_batch],
+               X_n[current_batch], Y_n[current_batch])
         current_batch += 1
 
 
